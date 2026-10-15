@@ -25,7 +25,7 @@ API model name: `nemotron-3.5-bolt`. Boot takes about 2 minutes.
 |---|---|---:|---:|---:|
 | `fast`  | DFlash LiLiCorr, 5 tokens | 1 | 262,144 | 0.95 |
 | `long`  | none | 1 | 262,144 | 0.96 |
-| `multi` | none | 4 | 32,768 | 0.96 |
+| `multi` | none | 8 | 32,768 | 0.88 (+ `VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0`) |
 
 ## Results
 
@@ -34,7 +34,7 @@ RTX 5090 32 GB, power limit 408 W, stock clocks. fp8 KV cache. Warm runs, 512-to
 | profile | prefill 8K | prefill 32K | decode, 1 stream | concurrent |
 |---|---:|---:|---:|---|
 | `fast`  | 6,277 tok/s | 6,003 tok/s | ~218 tok/s (see below) | - |
-| `multi` | 6,516 tok/s | 6,084 tok/s | 173 tok/s | 4 requests: 131 tok/s per stream, 271 tok/s total (3 run at once, see notes) |
+| `multi` | 6,537 tok/s | 6,092 tok/s | 172 tok/s | 8 requests: 95 tok/s per stream, 738 tok/s total; 4 requests: 121 per stream, 463 total (all run at once) |
 | `long`  | - | - | - | 200K-token needle test passed; 200K prefill at 4,195 tok/s |
 
 `fast` long-context checks (drafter on, 262K window): needle at 196K tokens passed (prefill 4,391 tok/s),
@@ -72,12 +72,26 @@ the Mamba page size exactly, no padding is added, and a 262K request fits. The L
 - Prefill chunk (`--max-num-batched-tokens`, default 2048 here). `fast` uses 4096: 196K-token prefill 4,148-4,176 -> 4,384-4,391 tok/s (+5%),
   32K +3%, 8K unchanged, decode unchanged within boot-to-boot noise, KV pool 301K -> 296K tokens (262K still fits).
   8192 runs out of memory at startup with the drafter loaded (the profile run needs a 2 GiB buffer).
-- Each running request holds a large Mamba state. With 4 sequences only ~32K context fits, and in practice 3 requests run at once; a 4th waits for a free slot.
-- Other processes on the GPU (about 1 GB here) limit `--gpu-memory-utilization` to about 0.96.
+- `multi`: turn off vLLM's CUDA-graph memory estimate. With 4+ sequences it reserves ~3.8 GiB for CUDA graphs that use ~0.04 GiB,
+  which left 0.4 GiB of KV cache: only 3 short requests ran at once (each request holds a large Mamba state) and a 4th waited.
+  With `VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0` the KV pool grows from 34K to 148K tokens:
+
+  | `multi` setting | KV pool | 4 requests total | 8 requests total |
+  |---|---:|---:|---:|
+  | old: 4 seqs, GMU 0.96 | 34K tokens | 271 tok/s (3 at once) | - |
+  | 4 seqs, GMU 0.88, estimate off | 148K tokens | 463 tok/s | - |
+  | new: 8 seqs, GMU 0.88, estimate off | 148K tokens | 429-434 tok/s | 738 tok/s (all 8 at once) |
+  | 16 seqs, GMU 0.86, estimate off | 91K tokens | 434 tok/s | 741 tok/s; 16 requests 692 tok/s (only ~8 at once) |
+
+  GMU has to drop with the estimate off, because about 4 GiB of GPU memory sits outside PyTorch and is not counted:
+  at 0.96 and 0.90 the server runs out of memory at startup; 0.88 boots. 16 sequences need 0.86, and the smaller pool
+  then holds only ~8 requests. Stress test with 8 seqs: 8 concurrent 30K-token prompts all complete
+  (the scheduler preempts and resumes when the pool is full).
 
 ## Files
 
 - `serve.sh` - start the server with one of the profiles
 - `bench.py` - smoke test, prefill and decode checks
 - `bench_s4.py` - fires N concurrent streams and reports per-stream and total decode speed
-- `needle.py` - long-context needle test: `python3 needle.py 250000`
+- `needle.py` - long-context needle test: `python3 needle.py 250000 [seed]`
+- `stress.py` - N concurrent long prompts: `python3 stress.py 8 30000`
