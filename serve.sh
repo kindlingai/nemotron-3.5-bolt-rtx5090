@@ -21,7 +21,8 @@ case $PROFILE in
          # 5 draft tokens, not 7: same accepted tokens per step, cheaper verify, and the full 262K fits (see README)
          EXTRA=(--max-num-batched-tokens 4096)   # +5% prefill on long prompts; 8192 does not fit with the drafter
          SPEC=(--speculative-config '{"method":"dflash","model":"/models/drafter","num_speculative_tokens":5,"rejection_sample_method":"standard","attention_backend":"FLASHINFER","draft_load_config":{"load_format":"auto"}}') ;;
-  long)  LEN=262144; SEQS=1; GMU=0.96 ;;
+  long)  LEN=262144; SEQS=1; GMU=0.96
+         EXTRA=(--max-num-batched-tokens 4096) ;;   # +4.5% prefill at 196K; 8192 does not fit
   multi) LEN=32768;  SEQS=8; GMU=0.88
          # vLLM's CUDA-graph memory estimate reserves ~3.8 GiB here; the real graph pool is ~0.04 GiB.
          # Turn it off and lower GMU (about 4 GiB of GPU memory is outside PyTorch and not counted).

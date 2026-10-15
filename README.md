@@ -35,7 +35,7 @@ RTX 5090 32 GB, power limit 408 W, stock clocks. fp8 KV cache. Warm runs, 512-to
 |---|---:|---:|---:|---|
 | `fast`  | 6,277 tok/s | 6,003 tok/s | ~218 tok/s (see below) | - |
 | `multi` | 6,537 tok/s | 6,092 tok/s | 172 tok/s | 8 requests: 95 tok/s per stream, 738 tok/s total; 4 requests: 121 per stream, 463 total (all run at once) |
-| `long`  | - | - | - | 200K-token needle test passed; 200K prefill at 4,195 tok/s |
+| `long`  | 6,675 tok/s | 6,263 tok/s | - | needle at 196K tokens passed; 196K prefill 4,460-4,490 tok/s |
 
 `fast` long-context checks (drafter on, 262K window): needle at 196K tokens passed (prefill 4,391 tok/s),
 needle at 250K tokens passed (prefill 3,704 tok/s, measured with the 2048 chunk). Run them with `python3 needle.py 250000 [seed]`.
@@ -69,9 +69,11 @@ the Mamba page size exactly, no padding is added, and a 262K request fits. The L
 
 - Set `--limit-mm-per-prompt`. Without it, the vision encoder's memory profiling runs out of memory at startup.
 - The DFlash drafter takes most of the KV headroom. With 7 draft tokens about 107K tokens of context fit; with 5, the full 262K fits (KV pool ~301K tokens). Without the drafter the KV pool is ~776K tokens.
-- Prefill chunk (`--max-num-batched-tokens`, default 2048 here). `fast` uses 4096: 196K-token prefill 4,148-4,176 -> 4,384-4,391 tok/s (+5%),
-  32K +3%, 8K unchanged, decode unchanged within boot-to-boot noise, KV pool 301K -> 296K tokens (262K still fits).
-  8192 runs out of memory at startup with the drafter loaded (the profile run needs a 2 GiB buffer).
+- Prefill chunk (`--max-num-batched-tokens`, default 2048 here). `fast` and `long` use 4096. Cold 196K-token prefill,
+  two seeds each: `fast` 4,148-4,176 -> 4,384-4,391 tok/s (+5%), `long` 4,279-4,283 -> 4,460-4,490 tok/s (+4.5%);
+  32K +3%; decode unchanged within boot-to-boot noise; KV pool `fast` 301K -> 296K, `long` 776K -> 773K tokens.
+  8192 runs out of memory at startup in both (the profile run needs a 2 GiB buffer). `multi` keeps the default:
+  4096 needs a 1 GiB buffer that its full KV budget does not leave.
 - `multi`: turn off vLLM's CUDA-graph memory estimate. With 4+ sequences it reserves ~3.8 GiB for CUDA graphs that use ~0.04 GiB,
   which left 0.4 GiB of KV cache: only 3 short requests ran at once (each request holds a large Mamba state) and a 4th waited.
   With `VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0` the KV pool grows from 34K to 148K tokens:
