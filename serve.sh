@@ -1,8 +1,8 @@
 #!/bin/bash
 # Nemotron 3.5 Bolt 74B-A9B 24GB on one RTX 5090 (32 GB) with vLLM.
 # Usage: ./serve.sh [fast|long|multi]
-#   fast  : DFlash LiLiCorr drafter, 1 sequence, 98K context  (best single-user speed)
-#   long  : no drafter, 1 sequence, full 262K context
+#   fast  : DFlash LiLiCorr drafter (5 draft tokens), 1 sequence, full 262K context (best single-user speed)
+#   long  : no drafter, 1 sequence, full 262K context (larger KV pool, no draft model)
 #   multi : no drafter, 4 sequences, 32K context
 # Needs: docker with the NVIDIA runtime, the model + drafter downloaded to $MODELS
 #   hf download nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB         --local-dir $MODELS/model
@@ -17,8 +17,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
   https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB/resolve/main/ultra_v3_reasoning_parser.py
 SPEC=()
 case $PROFILE in
-  fast)  LEN=98304;  SEQS=1; GMU=0.95
-         SPEC=(--speculative-config '{"method":"dflash","model":"/models/drafter","num_speculative_tokens":7,"rejection_sample_method":"standard","attention_backend":"FLASHINFER","draft_load_config":{"load_format":"auto"}}') ;;
+  fast)  LEN=262144; SEQS=1; GMU=0.95
+         # 5 draft tokens, not 7: same accepted tokens per step, cheaper verify, and the full 262K fits (see README)
+         SPEC=(--speculative-config '{"method":"dflash","model":"/models/drafter","num_speculative_tokens":5,"rejection_sample_method":"standard","attention_backend":"FLASHINFER","draft_load_config":{"load_format":"auto"}}') ;;
   long)  LEN=262144; SEQS=1; GMU=0.96 ;;
   multi) LEN=32768;  SEQS=4; GMU=0.96 ;;
   *) echo "profile: fast|long|multi"; exit 1 ;;
