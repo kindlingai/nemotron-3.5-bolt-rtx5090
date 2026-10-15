@@ -15,10 +15,11 @@ IMAGE=vllm/vllm-openai:nightly-77154ca6116ae34cbfe314beef1016bde9b63989
 HERE=$(cd "$(dirname "$0")" && pwd)
 [ -f "$HERE/ultra_v3_reasoning_parser.py" ] || wget -q -O "$HERE/ultra_v3_reasoning_parser.py" \
   https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB/resolve/main/ultra_v3_reasoning_parser.py
-SPEC=()
+SPEC=(); EXTRA=()
 case $PROFILE in
   fast)  LEN=262144; SEQS=1; GMU=0.95
          # 5 draft tokens, not 7: same accepted tokens per step, cheaper verify, and the full 262K fits (see README)
+         EXTRA=(--max-num-batched-tokens 4096)   # +5% prefill on long prompts; 8192 does not fit with the drafter
          SPEC=(--speculative-config '{"method":"dflash","model":"/models/drafter","num_speculative_tokens":5,"rejection_sample_method":"standard","attention_backend":"FLASHINFER","draft_load_config":{"load_format":"auto"}}') ;;
   long)  LEN=262144; SEQS=1; GMU=0.96 ;;
   multi) LEN=32768;  SEQS=4; GMU=0.96 ;;
@@ -41,5 +42,5 @@ docker run -d --name bolt --gpus all --ipc=host -p $PORT:8000 \
   --media-io-kwargs '{"video":{"fps":2,"num_frames":256}}' \
   --seed 42 --enable-auto-tool-choice --tool-call-parser qwen3_coder \
   --reasoning-parser-plugin /work/ultra_v3_reasoning_parser.py --reasoning-parser ultra_v3 \
-  "${SPEC[@]}"
+  "${SPEC[@]}" "${EXTRA[@]}"
 echo "started; follow with: docker logs -f bolt   (ready in ~2 min)"
